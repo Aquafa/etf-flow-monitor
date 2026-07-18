@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>加密 ETF 資金流向監測</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1: #fcfcfb;
+    --plane: #f9f9f7;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11,11,11,0.10);
+    --inflow: #2a78d6;
+    --outflow: #e34948;
+    --delta-good: #006300;
+    --delta-bad: #d03b3b;
+    --pill-active-bg: #0b0b0b;
+    --pill-active-fg: #fcfcfb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-1: #1a1a19;
+      --plane: #0d0d0d;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted: #898781;
+      --grid: #2c2c2a;
+      --baseline: #383835;
+      --border: rgba(255,255,255,0.10);
+      --inflow: #3987e5;
+      --outflow: #e66767;
+      --delta-good: #0ca30c;
+      --delta-bad: #d03b3b;
+      --pill-active-bg: #ffffff;
+      --pill-active-fg: #1a1a19;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-1: #1a1a19;
+    --plane: #0d0d0d;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #898781;
+    --grid: #2c2c2a;
+    --baseline: #383835;
+    --border: rgba(255,255,255,0.10);
+    --inflow: #3987e5;
+    --outflow: #e66767;
+    --delta-good: #0ca30c;
+    --delta-bad: #d03b3b;
+    --pill-active-bg: #ffffff;
+    --pill-active-fg: #1a1a19;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--plane);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", "Microsoft JhengHei", sans-serif;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 24px 16px 48px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+  h1 { font-size: 20px; font-weight: 650; }
+  .meta { font-size: 12px; color: var(--text-muted); }
+  .meta a { color: inherit; }
+  .controls { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin: 14px 0 18px; }
+  .pills { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pill {
+    border: 1px solid var(--border); background: var(--surface-1); color: var(--text-secondary);
+    border-radius: 999px; padding: 5px 14px; font-size: 13px; cursor: pointer; font-family: inherit;
+  }
+  .pill:hover { color: var(--text-primary); }
+  .pill.active { background: var(--pill-active-bg); color: var(--pill-active-fg); border-color: transparent; font-weight: 600; }
+  .pill:focus-visible { outline: 2px solid var(--inflow); outline-offset: 1px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .tile {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;
+  }
+  .tile .label { font-size: 12px; color: var(--text-muted); }
+  .tile .value { font-size: 26px; font-weight: 650; margin-top: 2px; }
+  .tile .sub { font-size: 12px; margin-top: 2px; }
+  .sub.good { color: var(--delta-good); }
+  .sub.bad { color: var(--delta-bad); }
+  .sub.flat { color: var(--text-muted); }
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px; margin-bottom: 16px;
+  }
+  .card h2 { font-size: 14px; font-weight: 650; }
+  .card-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-secondary); }
+  .legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+  .unit { font-size: 11px; color: var(--text-muted); }
+  svg { display: block; width: 100%; height: auto; }
+  svg text { font-family: inherit; }
+  .axis-tick { font-size: 11px; fill: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .tbl-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  th, td { padding: 6px 10px; text-align: right; white-space: nowrap; }
+  th { color: var(--text-muted); font-weight: 550; border-bottom: 1px solid var(--grid); }
+  td:first-child, th:first-child { text-align: left; color: var(--text-secondary); }
+  tbody tr { border-bottom: 1px solid var(--grid); }
+  tbody tr:last-child { border-bottom: none; }
+  td.neg { color: var(--delta-bad); }
+  td.tot { font-weight: 650; color: var(--text-primary); }
+  .badge { background: var(--outflow); color: #fff; border-radius: 999px; padding: 0 6px; font-size: 11px; font-weight: 700; margin-left: 4px; }
+  .alert-row { display: flex; gap: 10px; padding: 10px 2px; border-bottom: 1px solid var(--grid); align-items: baseline; flex-wrap: wrap; }
+  .alert-row:last-child { border-bottom: none; }
+  .chip { flex: 0 0 auto; display: inline-flex; gap: 5px; align-items: center; font-size: 12px; font-weight: 650; border: 1px solid var(--grid); border-radius: 6px; padding: 1px 8px; white-space: nowrap; }
+  .chip .ic { font-size: 11px; }
+  .chip.ok .ic { color: #0ca30c; }
+  .chip.warn .ic { color: #fab219; }
+  .chip.serious .ic { color: #ec835a; }
+  .chip.critical .ic { color: #d03b3b; }
+  .alert-title { font-weight: 650; font-size: 13.5px; }
+  .alert-detail { color: var(--text-secondary); font-size: 12.5px; flex-basis: 100%; margin-left: 2px; }
+  .cluster-note { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
+  td.trend { text-align: left; color: var(--text-secondary); }
+  #tooltip {
+    position: fixed; pointer-events: none; z-index: 10; display: none;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.18); padding: 8px 11px; font-size: 12px;
+    font-variant-numeric: tabular-nums; min-width: 130px;
+  }
+  #tooltip .tt-date { color: var(--text-muted); margin-bottom: 2px; }
+  #tooltip .tt-row { display: flex; justify-content: space-between; gap: 14px; }
+  footer { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+  .loading-note { font-size: 13px; color: var(--text-muted); padding: 30px 0; text-align: center; }
+  .refetching { opacity: 0.6; transition: opacity .2s; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>加密貨幣現貨 ETF 資金流向監測</h1>
+    <div class="meta">
+      資料來源：<a href="https://farside.co.uk" target="_blank" rel="noopener">Farside Investors</a>
+      ・ <span id="updated">載入中…</span>
+      ・ <button id="themeBtn" class="pill" style="padding:2px 10px;font-size:12px">主題：自動</button>
+    </div>
+  </header>
+
+  <div class="controls">
+    <div class="pills" id="assetTabs" role="tablist">
+      <button class="pill active" data-asset="btc" role="tab">BTC 比特幣</button>
+      <button class="pill" data-asset="eth" role="tab">ETH 以太幣</button>
+      <button class="pill" data-asset="stocks" role="tab">全球股市</button>
+      <button class="pill" data-asset="risk" role="tab" id="riskTab">風險警示</button>
+    </div>
+    <div class="pills" id="horizonTabs" style="display:none">
+      <button class="pill" data-horizon="flow1w">1 週</button>
+      <button class="pill active" data-horizon="flow1m">1 月</button>
+      <button class="pill" data-horizon="flow3m">3 月</button>
+      <button class="pill" data-horizon="flowYtd">今年以來</button>
+      <button class="pill" data-horizon="flow1y">1 年</button>
+    </div>
+    <div class="pills" id="regionTabs" style="display:none"></div>
+    <div class="pills" id="rangeTabs">
+      <button class="pill" data-range="30">30 天</button>
+      <button class="pill active" data-range="90">90 天</button>
+      <button class="pill" data-range="180">半年</button>
+      <button class="pill" data-range="365">1 年</button>
+      <button class="pill" data-range="0">全部</button>
+    </div>
+  </div>
+
+  <div id="content">
+    <div class="loading-note">正在載入資料…</div>
+  </div>
+
+  <footer>
+    單位：百萬美元（US$m）。括號 / 紅字代表淨流出。加密 ETF 資料來自
+    <a href="https://farside.co.uk" target="_blank" rel="noopener">Farside Investors</a>、全球股市 ETF 資料來自
+    <a href="https://www.trackinsight.com" target="_blank" rel="noopener">Trackinsight</a>，
+    於每個交易日收盤後更新；此頁面每 30 分鐘自動重新讀取一次。
+  </footer>
+</div>
+<div id="tooltip"></div>
+
+<script>
+(function () {
+  "use strict";
+  const state = { asset: "btc", range: 90, horizon: "flow1m", region: "us", data: {} };
+  const HORIZON_NAMES = { flow1w: "1 週", flow1m: "1 月", flow3m: "3 月", flowYtd: "今年以來", flow1y: "1 年" };
+  const content = document.getElementById("content");
+  const tooltip = document.getElementById("tooltip");
+
+  // ---------- utilities ----------
+  const fmtM = v => {
+    const sign = v > 0 ? "+" : v < 0 ? "−" : "";
+    const a = Math.abs(v);
+    return a >= 1000 ? sign + (a / 1000).toFixed(2) + " B" : sign + a.toFixed(1) + " M";
+  };
+  const fmtCell = v => {
+    if (v === 0) return "0.0";
+    const a = Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    return v < 0 ? "(" + a + ")" : a;
+  };
+  const fmtAxis = v => {
+    const a = Math.abs(v);
+    const s = a >= 1000 ? (a / 1000) + "B" : a + "M";
+    return (v < 0 ? "−" : "") + s;
+  };
+  const fmtDate = d => d.slice(5).replace("-", "/");
+  const fmtDateFull = d => d.replace(/-/g, "/");
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  function niceTicks(min, max, n) {
+    if (min === max) { min -= 1; max += 1; }
+    const span = max - min;
+    const step0 = span / n;
+    const mag = Math.pow(10, Math.floor(Math.log10(step0)));
+    const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => span / s <= n) || 10 * mag;
+    const ticks = [];
+    for (let t = Math.ceil(min / step) * step; t <= max + 1e-9; t += step) ticks.push(Math.round(t * 100) / 100);
+    return ticks;
+  }
+
+  function showTooltip(html, x, y) {
+    tooltip.innerHTML = html;
+    tooltip.style.display = "block";
+    const r = tooltip.getBoundingClientRect();
+    let left = x + 14, top = y - r.height - 10;
+    if (left + r.width > window.innerWidth - 8) left = x - r.width - 14;
+    if (top < 8) top = y + 14;
+    tooltip.style.left = left + "px";
+    tooltip.style.top = top + "px";
+  }
+  const hideTooltip = () => { tooltip.style.display = "none"; };
+
+  // ---------- data ----------
+  async function loadData(initial) {
+    try {
+      if (!initial) content.classList.add("refetching");
+      const bust = "?t=" + Math.floor(Date.now() / 60000);
+      const [btc, eth, stocks] = await Promise.all(
+        ["data/btc.json", "data/eth.json", "data/stocks.json"].map((u, i) => fetch(u + bust).then(r => {
+          if (!r.ok) throw new Error(u + " HTTP " + r.status);
+          return r.json();
+        }).catch(e => { if (i === 2) return null; throw e; }))
+      );
+      state.data = { btc, eth, stocks };
+      render();
+    } catch (e) {
+      if (initial) content.innerHTML =
+        '<div class="loading-note">讀取資料失敗：' + esc(e.message) +
+        '<br>若以 file:// 直接開啟本頁，請改用本地伺服器（例如 python -m http.server）。</div>';
+    } finally {
+      content.classList.remove("refetching");
+    }
+  }
+
+  function currentRows() {
+    const d = state.data[state.asset];
+    if (!d) return [];
+    return state.range ? d.rows.slice(-state.range) : d.rows;
+  }
+
+  // ---------- render ----------
+  function render() {
+    updateRiskBadge();
+    const isStocks = state.asset === "stocks", isRisk = state.asset === "risk";
+    document.getElementById("horizonTabs").style.display = isStocks ? "" : "none";
+    document.getElementById("regionTabs").style.display = isStocks ? "" : "none";
+    document.getElementById("rangeTabs").style.display = isRisk ? "none" : "";
+    if (isRisk) { renderRisk(); return; }
+    if (isStocks) { renderStocks(); return; }
+    const d = state.data[state.asset];
+    if (!d) return;
+    const rows = currentRows();
+    if (!rows.length) { content.innerHTML = '<div class="loading-note">此區間沒有資料</div>'; return; }
+
+    document.getElementById("updated").textContent =
+      "資料更新：" + d.updated.slice(0, 10) + " " + d.updated.slice(11, 16) + " UTC";
+
+    const last = rows[rows.length - 1];
+    const sumN = n => rows.slice(-n).reduce((s, r) => s + r.total, 0);
+    const cumAll = d.rows[d.rows.length - 1].cumulative;
+
+    content.innerHTML =
+      tilesHTML(last, sumN(7), sumN(30), cumAll) +
+      cardHTML("daily", "每日淨流量", true) +
+      cardHTML("cum", "累計淨流入", false) +
+      cardHTML("latest", "最新交易日（" + fmtDateFull(last.date) + "）各 ETF 明細", true) +
+      tableHTML(d);
+
+    drawDaily(document.getElementById("chart-daily"), rows);
+    drawCumulative(document.getElementById("chart-cum"), rows);
+    drawBreakdown(document.getElementById("chart-latest"), d, last);
+  }
+
+  function tileHTML(label, v, subLabel) {
+    const cls = v > 0 ? "good" : v < 0 ? "bad" : "flat";
+    const word = v > 0 ? "▲ 淨流入" : v < 0 ? "▼ 淨流出" : "— 持平";
+    return '<div class="tile"><div class="label">' + label + '</div>' +
+      '<div class="value">US$ ' + fmtM(v) + '</div>' +
+      '<div class="sub ' + cls + '">' + word + (subLabel ? '・' + subLabel : "") + '</div></div>';
+  }
+  function tilesHTML(last, w7, w30, cum) {
+    return '<div class="tiles">' +
+      tileHTML("最新交易日 " + fmtDateFull(last.date), last.total) +
+      tileHTML("近 7 個交易日", w7) +
+      tileHTML("近 30 個交易日", w30) +
+      tileHTML("上市以來累計", cum) +
+      '</div>';
+  }
+
+  function cardHTML(id, title, legend) {
+    return '<div class="card"><div class="card-head"><h2>' + title +
+      ' <span class="unit">單位 US$m</span></h2>' +
+      (legend ? '<div class="legend"><span><span class="sw" style="background:var(--inflow)"></span>流入</span>' +
+        '<span><span class="sw" style="background:var(--outflow)"></span>流出</span></div>' : "") +
+      '</div><div id="chart-' + id + '"></div></div>';
+  }
+
+  const NS = "http://www.w3.org/2000/svg";
+  function el(name, attrs, parent) {
+    const e = document.createElementNS(NS, name);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+
+  function frame(container, W, H, PAD, values) {
+    container.innerHTML = "";
+    const svg = el("svg", { viewBox: "0 0 " + W + " " + H });
+    container.appendChild(svg);
+    let min = Math.min(0, ...values), max = Math.max(0, ...values);
+    const span = (max - min) || 1;
+    min -= span * 0.05; max += span * 0.05;
+    const ticks = niceTicks(min, max, 5);
+    min = Math.min(min, ticks[0]); max = Math.max(max, ticks[ticks.length - 1]);
+    const y = v => PAD.t + (max - v) / (max - min) * (H - PAD.t - PAD.b);
+    for (const t of ticks) {
+      el("line", { x1: PAD.l, x2: W - PAD.r, y1: y(t), y2: y(t), stroke: "var(--grid)", "stroke-width": 1 }, svg);
+      el("text", { x: PAD.l - 6, y: y(t) + 3.5, "text-anchor": "end", class: "axis-tick" }, svg)
+        .textContent = fmtAxis(t);
+    }
+    if (min < 0 && max > 0)
+      el("line", { x1: PAD.l, x2: W - PAD.r, y1: y(0), y2: y(0), stroke: "var(--baseline)", "stroke-width": 1 }, svg);
+    return { svg, y };
+  }
+
+  function xTicks(svg, rows, xOf, H, PAD) {
+    const n = Math.min(6, rows.length);
+    const stride = Math.max(1, Math.floor(rows.length / n));
+    for (let i = 0; i < rows.length; i += stride) {
+      el("text", { x: xOf(i), y: H - PAD.b + 16, "text-anchor": "middle", class: "axis-tick" }, svg)
+        .textContent = fmtDate(rows[i].date);
+    }
+  }
+
+  // rounded outer-end bar path (anchored at baseline)
+  function barPath(x, w, y0, y1, r) {
+    // y1 is the data end (may be above or below y0)
+    r = Math.min(r, w / 2, Math.abs(y1 - y0));
+    if (r < 1) return "M" + x + " " + y0 + "H" + (x + w) + "V" + y1 + "H" + x + "Z";
+    if (y1 < y0) // positive bar, round top
+      return "M" + x + " " + y0 + "V" + (y1 + r) + "Q" + x + " " + y1 + " " + (x + r) + " " + y1 +
+        "H" + (x + w - r) + "Q" + (x + w) + " " + y1 + " " + (x + w) + " " + (y1 + r) + "V" + y0 + "Z";
+    return "M" + x + " " + y0 + "V" + (y1 - r) + "Q" + x + " " + y1 + " " + (x + r) + " " + y1 +
+      "H" + (x + w - r) + "Q" + (x + w) + " " + y1 + " " + (x + w) + " " + (y1 - r) + "V" + y0 + "Z";
+  }
+
+  function drawDaily(container, rows) {
+    const W = 960, H = 320, PAD = { l: 52, r: 8, t: 10, b: 26 };
+    const { svg, y } = frame(container, W, H, PAD, rows.map(r => r.total));
+    const plotW = W - PAD.l - PAD.r;
+    const band = plotW / rows.length;
+    const barW = Math.max(1, Math.min(band - 2, 16));
+    const xOf = i => PAD.l + band * i + band / 2;
+    const y0 = y(0);
+    rows.forEach((r, i) => {
+      const v = r.total;
+      const color = v >= 0 ? "var(--inflow)" : "var(--outflow)";
+      el("path", {
+        d: barPath(xOf(i) - barW / 2, barW, y0, y(v), barW >= 6 ? 4 : 0),
+        fill: color
+      }, svg);
+    });
+    xTicks(svg, rows, xOf, H, PAD);
+    // full-height hover targets
+    rows.forEach((r, i) => {
+      const hit = el("rect", {
+        x: PAD.l + band * i, y: PAD.t, width: band, height: H - PAD.t - PAD.b,
+        fill: "transparent"
+      }, svg);
+      hit.addEventListener("mousemove", ev => {
+        const cls = r.total > 0 ? "good" : r.total < 0 ? "bad" : "flat";
+        showTooltip(
+          '<div class="tt-date">' + fmtDateFull(r.date) + '</div>' +
+          '<div class="tt-row"><span>單日淨流量</span><span class="sub ' + cls + '">' + fmtM(r.total) + '</span></div>' +
+          '<div class="tt-row"><span>累計</span><span>' + fmtM(r.cumulative) + '</span></div>',
+          ev.clientX, ev.clientY);
+      });
+      hit.addEventListener("mouseleave", hideTooltip);
+    });
+  }
+
+  function drawCumulative(container, rows) {
+    const W = 960, H = 300, PAD = { l: 52, r: 8, t: 10, b: 26 };
+    const { svg, y } = frame(container, W, H, PAD, rows.map(r => r.cumulative));
+    const plotW = W - PAD.l - PAD.r;
+    const xOf = i => PAD.l + (rows.length === 1 ? plotW / 2 : plotW * i / (rows.length - 1));
+    const dPath = rows.map((r, i) => (i ? "L" : "M") + xOf(i).toFixed(1) + " " + y(r.cumulative).toFixed(1)).join("");
+    el("path", { d: dPath, fill: "none", stroke: "var(--inflow)", "stroke-width": 2, "stroke-linejoin": "round" }, svg);
+    xTicks(svg, rows, xOf, H, PAD);
+    const cross = el("line", { y1: PAD.t, y2: H - PAD.b, stroke: "var(--baseline)", "stroke-width": 1, visibility: "hidden" }, svg);
+    const dot = el("circle", { r: 4, fill: "var(--inflow)", stroke: "var(--surface-1)", "stroke-width": 2, visibility: "hidden" }, svg);
+    const hit = el("rect", { x: PAD.l, y: PAD.t, width: plotW, height: H - PAD.t - PAD.b, fill: "transparent" }, svg);
+    hit.addEventListener("mousemove", ev => {
+      const box = svg.getBoundingClientRect();
+      const px = (ev.clientX - box.left) / box.width * W;
+      const i = Math.max(0, Math.min(rows.length - 1, Math.round((px - PAD.l) / plotW * (rows.length - 1))));
+      const r = rows[i];
+      cross.setAttribute("x1", xOf(i)); cross.setAttribute("x2", xOf(i)); cross.setAttribute("visibility", "visible");
+      dot.setAttribute("cx", xOf(i)); dot.setAttribute("cy", y(r.cumulative)); dot.setAttribute("visibility", "visible");
+      showTooltip(
+        '<div class="tt-date">' + fmtDateFull(r.date) + '</div>' +
+        '<div class="tt-row"><span>累計淨流入</span><span>' + fmtM(r.cumulative) + '</span></div>' +
+        '<div class="tt-row"><span>單日</span><span>' + fmtM(r.total) + '</span></div>',
+        ev.clientX, ev.clientY);
+    });
+    hit.addEventListener("mouseleave", () => {
+      hideTooltip();
+      cross.setAttribute("visibility", "hidden");
+      dot.setAttribute("visibility", "hidden");
+    });
+  }
+
+  function drawBreakdown(container, d, last) {
+    const entries = d.tickers.map(t => [t, last.flows[t] || 0]).sort((a, b) => b[1] - a[1]);
+    const W = 960, rowH = 30, PAD = { l: 64, r: 70, t: 6, b: 6 };
+    const H = PAD.t + PAD.b + rowH * entries.length;
+    container.innerHTML = "";
+    const svg = el("svg", { viewBox: "0 0 " + W + " " + H });
+    container.appendChild(svg);
+    const vals = entries.map(e => e[1]);
+    const maxAbs = Math.max(1, ...vals.map(Math.abs));
+    const plotW = W - PAD.l - PAD.r;
+    const zero = PAD.l + (vals.some(v => v < 0) ? plotW * (Math.max(0, -Math.min(...vals)) / (maxAbs + Math.max(0, -Math.min(...vals)))) : 0);
+    const scale = (plotW - (zero - PAD.l)) / maxAbs;
+    el("line", { x1: zero, x2: zero, y1: PAD.t, y2: H - PAD.b, stroke: "var(--baseline)", "stroke-width": 1 }, svg);
+    entries.forEach(([tk, v], i) => {
+      const cy = PAD.t + rowH * i + rowH / 2;
+      const w = Math.abs(v) * scale;
+      const barH = 16;
+      el("text", { x: PAD.l - 10, y: cy + 4, "text-anchor": "end", class: "axis-tick", "font-weight": 600 }, svg).textContent = tk;
+      if (w > 0.5) {
+        const x = v >= 0 ? zero + 1 : zero - 1 - w;
+        const rect = el("rect", {
+          x: x, y: cy - barH / 2, width: w, height: barH,
+          rx: Math.min(4, w / 2), fill: v >= 0 ? "var(--inflow)" : "var(--outflow)"
+        }, svg);
+        rect.addEventListener("mousemove", ev =>
+          showTooltip('<div class="tt-date">' + tk + '</div><div class="tt-row"><span>' +
+            fmtDateFull(last.date) + '</span><span>' + fmtM(v) + '</span></div>', ev.clientX, ev.clientY));
+        rect.addEventListener("mouseleave", hideTooltip);
+      }
+      const lx = v >= 0 ? zero + 1 + w + 8 : zero - 1 - w - 8;
+      el("text", {
+        x: lx, y: cy + 4, "text-anchor": v >= 0 ? "start" : "end",
+        class: "axis-tick", fill: "var(--text-secondary)"
+      }, svg).textContent = fmtM(v);
+    });
+  }
+
+  function tableHTML(d) {
+    const rows = d.rows.slice(-15).reverse();
+    let h = '<div class="card"><div class="card-head"><h2>近 15 個交易日明細 <span class="unit">單位 US$m</span></h2></div>' +
+      '<div class="tbl-wrap"><table><thead><tr><th>日期</th>';
+    for (const t of d.tickers) h += "<th>" + esc(t) + "</th>";
+    h += "<th>合計</th></tr></thead><tbody>";
+    for (const r of rows) {
+      h += "<tr><td>" + fmtDateFull(r.date) + "</td>";
+      for (const t of d.tickers) {
+        const v = r.flows[t] || 0;
+        h += '<td class="' + (v < 0 ? "neg" : "") + '">' + fmtCell(v) + "</td>";
+      }
+      h += '<td class="tot ' + (r.total < 0 ? "neg" : "") + '">' + fmtCell(r.total) + "</td></tr>";
+    }
+    h += "</tbody></table></div></div>";
+    return h;
+  }
+
+  // ---------- stocks view ----------
+  function renderStocks() {
+    const d = state.data.stocks;
+    if (!d) {
+      content.innerHTML = '<div class="loading-note">尚未產生股市資料（data/stocks.json）。請先執行 python scripts/scrape_stocks.py</div>';
+      return;
+    }
+    document.getElementById("updated").textContent =
+      "資料更新：" + d.updated.slice(0, 10) + " " + d.updated.slice(11, 16) + " UTC";
+
+    // region pills (built once)
+    const rt = document.getElementById("regionTabs");
+    if (!rt.childElementCount) {
+      rt.innerHTML = d.segments.map(s =>
+        '<button class="pill' + (s.key === state.region ? " active" : "") + '" data-region="' + s.key + '">' + s.name + "</button>").join("");
+    }
+
+    const h = state.horizon;
+    const list = d.countries.slice().sort((a, b) => b[h] - a[h]);
+    const top = list[0], bottom = list[list.length - 1];
+    const total = list.reduce((s, c) => s + c[h], 0);
+    const hName = HORIZON_NAMES[h];
+
+    const seg = d.segments.find(s => s.key === state.region) || d.segments[0];
+    const segRows = (state.range ? seg.rows.slice(-state.range) : seg.rows)
+      .map(r => ({ date: r.date, total: r.flow, cumulative: r.cumulative }));
+
+    content.innerHTML =
+      '<div class="tiles">' +
+      tileHTML("各國合計（" + hName + "）", total) +
+      tileHTML("最大流入：" + top.country + "（" + top.ticker + "）", top[h]) +
+      tileHTML("最大流出：" + bottom.country + "（" + bottom.ticker + "）", bottom[h]) +
+      '<div class="tile"><div class="label">監測範圍</div><div class="value">' + list.length + ' 國</div>' +
+      '<div class="sub flat">各國代表性 ETF・單位 US$m</div></div>' +
+      "</div>" +
+      cardHTML("countries", "各國股市 ETF 淨流量（" + hName + "）", true) +
+      cardHTML("daily", "區域每日淨流量：" + seg.name, true) +
+      cardHTML("cum", "區域累計淨流入：" + seg.name, false) +
+      stocksTableHTML(d);
+
+    drawCountries(document.getElementById("chart-countries"), list, h);
+    drawDaily(document.getElementById("chart-daily"), segRows);
+    drawCumulative(document.getElementById("chart-cum"), segRows);
+  }
+
+  function drawCountries(container, list, h) {
+    const W = 960, rowH = 26, PAD = { l: 150, r: 76, t: 6, b: 6 };
+    const H = PAD.t + PAD.b + rowH * list.length;
+    container.innerHTML = "";
+    const svg = el("svg", { viewBox: "0 0 " + W + " " + H });
+    container.appendChild(svg);
+    const vals = list.map(c => c[h]);
+    const maxPos = Math.max(1, ...vals.map(v => Math.max(0, v)));
+    const maxNeg = Math.max(0, ...vals.map(v => Math.max(0, -v)));
+    const plotW = W - PAD.l - PAD.r;
+    const zero = PAD.l + plotW * (maxNeg / (maxNeg + maxPos));
+    const scale = plotW / (maxNeg + maxPos);
+    el("line", { x1: zero, x2: zero, y1: PAD.t, y2: H - PAD.b, stroke: "var(--baseline)", "stroke-width": 1 }, svg);
+    list.forEach((c, i) => {
+      const v = c[h];
+      const cy = PAD.t + rowH * i + rowH / 2;
+      const w = Math.abs(v) * scale;
+      const barH = 14;
+      el("text", { x: PAD.l - 10, y: cy + 4, "text-anchor": "end", class: "axis-tick", fill: "var(--text-secondary)", "font-weight": 600 }, svg)
+        .textContent = c.country + " " + c.ticker;
+      if (w > 0.5) {
+        const rect = el("rect", {
+          x: v >= 0 ? zero + 1 : zero - 1 - w, y: cy - barH / 2, width: w, height: barH,
+          rx: Math.min(4, w / 2), fill: v >= 0 ? "var(--inflow)" : "var(--outflow)"
+        }, svg);
+        rect.addEventListener("mousemove", ev =>
+          showTooltip('<div class="tt-date">' + esc(c.country) + '・' + esc(c.label) + '</div>' +
+            '<div class="tt-row"><span>' + HORIZON_NAMES[h] + '淨流量</span><span>' + fmtM(v) + '</span></div>' +
+            '<div class="tt-row"><span>資產規模</span><span>' + fmtM(c.aum).replace("+", "") + '</span></div>', ev.clientX, ev.clientY));
+        rect.addEventListener("mouseleave", hideTooltip);
+      }
+      el("text", {
+        x: v >= 0 ? zero + 1 + w + 8 : zero - 1 - w - 8, y: cy + 4,
+        "text-anchor": v >= 0 ? "start" : "end", class: "axis-tick", fill: "var(--text-secondary)"
+      }, svg).textContent = fmtM(v);
+    });
+  }
+
+  function stocksTableHTML(d) {
+    let h = '<div class="card"><div class="card-head"><h2>各國明細（依資產規模排序） <span class="unit">單位 US$m</span></h2></div>' +
+      '<div class="tbl-wrap"><table><thead><tr><th>國家</th><th>ETF</th><th>資產規模</th>' +
+      '<th>1 週</th><th>1 月</th><th>3 月</th><th>今年以來</th><th>1 年</th></tr></thead><tbody>';
+    for (const c of d.countries) {
+      h += "<tr><td>" + esc(c.country) + "</td><td>" + esc(c.ticker) + "</td><td>" + fmtCell(c.aum) + "</td>";
+      for (const k of ["flow1w", "flow1m", "flow3m", "flowYtd", "flow1y"]) {
+        const v = c[k];
+        h += '<td class="' + (v < 0 ? "neg" : "") + '">' + fmtCell(v) + "</td>";
+      }
+      h += "</tr>";
+    }
+    h += "</tbody></table></div></div>";
+    return h;
+  }
+
+  // ---------- risk analysis engine ----------
+  const SEV = { ok: 0, warn: 1, serious: 2, critical: 3 };
+  const SEV_META = {
+    ok: { ic: "✓", label: "正常" },
+    warn: { ic: "▲", label: "注意" },
+    serious: { ic: "⚠", label: "警告" },
+    critical: { ic: "✖", label: "嚴重" },
+  };
+  const chip = sev => '<span class="chip ' + sev + '"><span class="ic">' + SEV_META[sev].ic + '</span>' + SEV_META[sev].label + "</span>";
+
+  const CLUSTERS = [
+    {
+      key: "east-asia", name: "東亞／台海情勢", tickers: ["EWT", "EWY", "EWJ", "MCHI", "EWH"],
+      note: "兩岸或朝鮮半島緊張升溫時，外資通常「同步」調節台、韓部位；若台韓中同步流出但日本流入，偏向地緣避險（日圓資產避險屬性）而非區域基本面轉壞。"
+    },
+    {
+      key: "china-plus-one", name: "供應鏈移轉（China+1）", tickers: ["INDA", "VNM", "EIDO", "THD", "EPHE", "EWM"],
+      note: "中美貿易戰／關稅升級時，資金常從中國轉向印度與東南亞。此叢集與中國「一出一進」為移轉訊號；若與中國同步流出，則屬全面性風險趨避。"
+    },
+    {
+      key: "europe-energy", name: "歐洲／俄烏與能源", tickers: ["EWG", "EPOL", "EWQ", "EWU", "NORW"],
+      note: "戰事或能源供應緊張時，前線的波蘭與依賴能源進口的德國最敏感；挪威為能源出口國，油氣價格上漲時反而受惠（與其他歐洲市場背離即為訊號）。"
+    },
+    {
+      key: "middle-east", name: "中東情勢", tickers: ["EIS", "KSA", "TUR"],
+      note: "衝突升級初期以色列通常先被調節；油價若因供應風險上漲，沙烏地相對受惠。以色列與沙烏地同步大幅流出，代表市場預期衝突擴大。"
+    },
+    {
+      key: "usd-haven", name: "美元資產避險", tickers: ["SPY"],
+      note: "全球性風險事件發生時，資金傾向迴流美元核心資產。若美國持續流入而新興市場、加密資產同步流出，為典型 risk-off 型態。"
+    },
+  ];
+
+  function sumLast(rows, n, field) {
+    return rows.slice(-n).reduce((s, r) => s + (field ? r[field] : r.total), 0);
+  }
+  function outflowStreak(rows, field) {
+    let k = 0;
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const v = field ? rows[i][field] : rows[i].total;
+      if (v < 0) k++;
+      else if (v > 0) break;
+      else break;
+    }
+    return k;
+  }
+  function lastZ(rows, field, n) {
+    const vals = rows.slice(-(n + 1), -1).map(r => (field ? r[field] : r.total));
+    if (vals.length < 20) return 0;
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+    const sd = Math.sqrt(vals.reduce((a, b) => a + (b - mean) * (b - mean), 0) / vals.length) || 1;
+    const last = rows[rows.length - 1];
+    return ((field ? last[field] : last.total) - mean) / sd;
+  }
+  function trendLabel(s7, s30) {
+    if (Math.abs(s7) + Math.abs(s30) < 1) return "持平";
+    const p7 = s7 / 7, p30 = s30 / 30;
+    if (s7 > 0 && s30 > 0) return p7 > 1.5 * p30 ? "加速流入" : (p7 < 0.5 * p30 ? "流入放緩" : "穩定流入");
+    if (s7 < 0 && s30 < 0) return p7 < 1.5 * p30 ? "加速流出" : "持續流出";
+    if (s7 > 0) return "流出趨緩、轉為流入";
+    return "由流入轉為流出";
+  }
+
+  function analyzeSeries(name, rows, alerts, opts) {
+    opts = opts || {};
+    const s7 = sumLast(rows, 7), s30 = sumLast(rows, 30);
+    const streak = outflowStreak(rows);
+    const z = lastZ(rows, null, 90);
+    const last = rows[rows.length - 1];
+    if (streak >= 5)
+      alerts.push({ sev: "serious", title: name + "：連續 " + streak + " 個交易日淨流出", detail: "資金持續撤離超過一週，通常領先於價格走弱或風險事件確認，建議關注後續是否加速。" });
+    else if (streak >= 3)
+      alerts.push({ sev: "warn", title: name + "：連續 " + streak + " 個交易日淨流出", detail: "短期資金轉向觀望，若延續至 5 日以上將升級為警告。" });
+    if (z <= -2.5)
+      alerts.push({ sev: "serious", title: name + "：異常大額單日流出（" + fmtM(last.total) + "）", detail: "單日流出達近 90 日平均的 " + Math.abs(z).toFixed(1) + " 個標準差，通常代表機構部位調整或事件驅動的避險。" });
+    else if (z >= 2.5 && !opts.quiet)
+      alerts.push({ sev: "warn", title: name + "：異常大額單日流入（" + fmtM(last.total) + "）", detail: "偏離近 90 日常態 " + z.toFixed(1) + " 個標準差；大額流入後常伴隨波動放大，留意是否為短線資金。" });
+    if (s7 < 0 && s30 > 0)
+      alerts.push({ sev: "warn", title: name + "：趨勢背離（30 日累計流入、近 7 日轉為流出）", detail: "7 日累計 " + fmtM(s7) + "、30 日累計 " + fmtM(s30) + "。資金動能領先反轉，是趨勢轉弱的預先訊號。" });
+    if (s30 < 0 && s7 / 7 < (s30 / 30) * 1.5)
+      alerts.push({ sev: "serious", title: name + "：流出加速中", detail: "近 7 日流出速度（日均 " + fmtM(s7 / 7) + "）明顯快於 30 日均速，撤離動能仍在增強。" });
+    return { name, day: last.total, s7, s30, trend: trendLabel(s7, s30) };
+  }
+
+  function computeRisk() {
+    const d = state.data;
+    if (!d.btc) return null;
+    const alerts = [];
+    const trendRows = [];
+    trendRows.push(analyzeSeries("BTC 現貨 ETF", d.btc.rows, alerts));
+    trendRows.push(analyzeSeries("ETH 現貨 ETF", d.eth.rows, alerts));
+    const seg = {};
+    if (d.stocks) {
+      for (const s of d.stocks.segments) {
+        seg[s.key] = s;
+        const rows = s.rows.map(r => ({ total: r.flow }));
+        trendRows.push(analyzeSeries(s.name + "（區域）", rows, alerts, { quiet: true }));
+      }
+      // country-level: outflow vs AUM
+      for (const c of d.stocks.countries) {
+        const pct = c.aum > 0 ? (c.flow1m / c.aum) * 100 : 0;
+        const abs1m = Math.abs(c.flow1m);
+        // 小型 ETF 的比例很容易失真，嚴重級警示同時要求絕對金額夠大
+        if (pct <= -6 && abs1m >= 100)
+          alerts.push({ sev: "critical", title: c.country + "（" + c.ticker + "）：單月流出達資產規模 " + Math.abs(pct).toFixed(1) + "%", detail: "月流出 " + fmtM(c.flow1m) + "，佔 AUM 比例極高，屬系統性撤離訊號，通常與該國重大政經事件相關。" });
+        else if (pct <= -3 && abs1m >= 50)
+          alerts.push({ sev: "serious", title: c.country + "（" + c.ticker + "）：單月流出佔資產規模 " + Math.abs(pct).toFixed(1) + "%", detail: "月流出 " + fmtM(c.flow1m) + "。外資對該市場的配置正在明顯下修。" });
+        else if (pct <= -5)
+          alerts.push({ sev: "warn", title: c.country + "（" + c.ticker + "）：流出佔資產規模 " + Math.abs(pct).toFixed(1) + "%（金額較小）", detail: "月流出 " + fmtM(c.flow1m) + "。比例偏高但絕對金額不大，可能只是單一大戶調整，先列入觀察。" });
+        if (c.flow1w < 0 && c.flow1m < 0 && c.flow1w / 7 < (c.flow1m / 30) * 2 && Math.abs(c.flow1w) >= 20)
+          alerts.push({ sev: "warn", title: c.country + "（" + c.ticker + "）：流出節奏加快", detail: "近 1 週流出速度為月均速的 2 倍以上（週 " + fmtM(c.flow1w) + "／月 " + fmtM(c.flow1m) + "），留意事件驅動風險。" });
+      }
+    }
+    // composite risk appetite
+    const crypto7 = sumLast(d.btc.rows, 7) + sumLast(d.eth.rows, 7);
+    const em7 = seg.em ? sumLast(seg.em.rows, 7, "flow") : 0;
+    const us7 = seg.us ? sumLast(seg.us.rows, 7, "flow") : 0;
+    const global7 = seg.global ? sumLast(seg.global.rows, 7, "flow") : 0;
+    const offVotes = (crypto7 < 0) + (em7 < 0) + (global7 < 0);
+    let appetite, appetiteSev, appetiteDetail;
+    if (offVotes >= 2 && us7 > 0) {
+      appetite = "避險（Risk-off）"; appetiteSev = "serious";
+      appetiteDetail = "高風險資產（加密" + fmtM(crypto7) + "、新興市場" + fmtM(em7) + "）遭撤出，但美國大型股仍獲流入（" + fmtM(us7) + "）——資金迴流核心資產，為典型風險趨避型態。";
+    } else if (offVotes >= 2) {
+      appetite = "全面收縮"; appetiteSev = "critical";
+      appetiteDetail = "加密、新興市場與全球股票同步流出，且美股亦未獲避險買盤，屬廣泛性去槓桿訊號。";
+    } else if (crypto7 > 0 && em7 > 0) {
+      appetite = "風險偏好（Risk-on）"; appetiteSev = "ok";
+      appetiteDetail = "加密資產與新興市場同步獲得流入，資金正往高風險資產擴散。";
+    } else {
+      appetite = "中性"; appetiteSev = "warn";
+      appetiteDetail = "各資產類別資金方向分歧（加密 " + fmtM(crypto7) + "、新興市場 " + fmtM(em7) + "、美國 " + fmtM(us7) + "），暫無一致的風險偏好方向。";
+    }
+    if (appetiteSev === "serious" || appetiteSev === "critical")
+      alerts.push({ sev: appetiteSev, title: "整體風險偏好：" + appetite, detail: appetiteDetail });
+
+    // geopolitical clusters
+    const clusters = [];
+    if (d.stocks) {
+      const byTicker = {};
+      for (const c of d.stocks.countries) byTicker[c.ticker] = c;
+      for (const cl of CLUSTERS) {
+        const members = cl.tickers.map(t => byTicker[t]).filter(Boolean);
+        const w = members.reduce((s, c) => s + c.flow1w, 0);
+        const m = members.reduce((s, c) => s + c.flow1m, 0);
+        let sev = "ok", reading;
+        if (w < 0 && m < 0 && w / 7 < (m / 30) * 1.5) {
+          sev = "serious";
+          reading = "資金加速撤出（週 " + fmtM(w) + "／月 " + fmtM(m) + "），此叢集的地緣風險溢價正在上升，市場可能正在提前定價相關事件。";
+        } else if (w < 0 && m < 0) {
+          sev = "warn";
+          reading = "持續淨流出（週 " + fmtM(w) + "／月 " + fmtM(m) + "），維持觀察；若流出加速則代表風險升溫。";
+        } else if (w < 0) {
+          sev = "warn";
+          reading = "近一週轉為流出（" + fmtM(w) + "），月累計仍為流入（" + fmtM(m) + "）——短期情緒轉向的早期訊號。";
+        } else {
+          reading = "資金面平穩（週 " + fmtM(w) + "／月 " + fmtM(m) + "），目前市場未對此叢集定價顯著地緣風險。";
+        }
+        if (sev === "serious")
+          alerts.push({ sev, title: "地緣叢集「" + cl.name + "」資金加速撤出", detail: reading });
+        clusters.push({ ...cl, members, w, m, sev, reading });
+      }
+    }
+    alerts.sort((a, b) => SEV[b.sev] - SEV[a.sev]);
+    return { alerts, trendRows, clusters, appetite, appetiteSev, appetiteDetail, crypto7, us7, em7, global7 };
+  }
+
+  function updateRiskBadge() {
+    const r = computeRisk();
+    const btn = document.getElementById("riskTab");
+    if (!r) return;
+    const n = r.alerts.filter(a => SEV[a.sev] >= 2).length;
+    btn.innerHTML = "風險警示" + (n ? '<span class="badge">' + n + "</span>" : "");
+  }
+
+  function renderRisk() {
+    const r = computeRisk();
+    if (!r) return;
+    const d = state.data;
+    document.getElementById("updated").textContent =
+      "資料更新：" + d.btc.updated.slice(0, 10) + " " + d.btc.updated.slice(11, 16) + " UTC";
+
+    let h = '<div class="tiles">' +
+      '<div class="tile"><div class="label">整體風險偏好（近 7 個交易日）</div><div class="value" style="font-size:20px">' + r.appetite + '</div><div class="sub flat">' + chip(r.appetiteSev) + '</div></div>' +
+      tileHTML("加密 ETF 近 7 日（BTC+ETH）", r.crypto7) +
+      tileHTML("美國大型股近 1 週", r.us7) +
+      tileHTML("新興市場近 1 週", r.em7) +
+      "</div>";
+
+    // alert list
+    h += '<div class="card"><div class="card-head"><h2>預警訊號（' + r.alerts.length + '）</h2>' +
+      '<span class="unit">以資金流向為領先指標的規則式判讀</span></div>';
+    if (!r.alerts.length) h += '<div class="alert-row">' + chip("ok") + '<span class="alert-title">目前沒有觸發任何警示</span></div>';
+    for (const a of r.alerts)
+      h += '<div class="alert-row">' + chip(a.sev) + '<span class="alert-title">' + a.title + '</span>' +
+        '<span class="alert-detail">' + a.detail + "</span></div>";
+    h += "</div>";
+
+    // trend table
+    h += '<div class="card"><div class="card-head"><h2>資金動能總表 <span class="unit">單位 US$m</span></h2></div><div class="tbl-wrap"><table><thead><tr>' +
+      "<th>市場</th><th>最新單日</th><th>近 7 日</th><th>近 30 日</th><th>趨勢判讀</th></tr></thead><tbody>";
+    for (const t of r.trendRows) {
+      h += '<tr><td>' + t.name + "</td>" +
+        '<td class="' + (t.day < 0 ? "neg" : "") + '">' + fmtCell(t.day) + "</td>" +
+        '<td class="' + (t.s7 < 0 ? "neg" : "") + '">' + fmtCell(Math.round(t.s7 * 10) / 10) + "</td>" +
+        '<td class="' + (t.s30 < 0 ? "neg" : "") + '">' + fmtCell(Math.round(t.s30 * 10) / 10) + "</td>" +
+        '<td class="trend">' + t.trend + "</td></tr>";
+    }
+    h += "</tbody></table></div></div>";
+
+    // geopolitical clusters
+    if (r.clusters.length) {
+      h += '<div class="card"><div class="card-head"><h2>地緣政治叢集判讀</h2><span class="unit">以相關國家 ETF 資金流向反推市場定價</span></div>';
+      for (const cl of r.clusters) {
+        h += '<div class="alert-row">' + chip(cl.sev) +
+          '<span class="alert-title">' + cl.name + '</span>' +
+          '<span style="color:var(--text-muted);font-size:12px">' + cl.members.map(x => x.ticker).join("・") + "</span>" +
+          '<span class="alert-detail">' + cl.reading + '<div class="cluster-note">背景：' + cl.note + "</div></span></div>";
+      }
+      h += "</div>";
+    }
+
+    h += '<div class="card"><div class="cluster-note">說明：以上警示為根據歷史經驗設計的<b>規則式</b>資金面訊號（連續流出、流量異常值、動能背離、流出佔資產規模比例、叢集同步性），' +
+      '用意是在事件被新聞證實前提早提示「市場已開始定價」的變化，並非投資建議；請搭配基本面與消息面自行判斷。</div></div>';
+
+    content.innerHTML = h;
+  }
+
+  // ---------- events ----------
+  document.getElementById("assetTabs").addEventListener("click", e => {
+    const b = e.target.closest("[data-asset]");
+    if (!b) return;
+    state.asset = b.dataset.asset;
+    document.querySelectorAll("#assetTabs .pill").forEach(p => p.classList.toggle("active", p === b));
+    render();
+  });
+  document.getElementById("rangeTabs").addEventListener("click", e => {
+    const b = e.target.closest("[data-range]");
+    if (!b) return;
+    state.range = +b.dataset.range;
+    document.querySelectorAll("#rangeTabs .pill").forEach(p => p.classList.toggle("active", p === b));
+    render();
+  });
+  document.getElementById("horizonTabs").addEventListener("click", e => {
+    const b = e.target.closest("[data-horizon]");
+    if (!b) return;
+    state.horizon = b.dataset.horizon;
+    document.querySelectorAll("#horizonTabs .pill").forEach(p => p.classList.toggle("active", p === b));
+    render();
+  });
+  document.getElementById("regionTabs").addEventListener("click", e => {
+    const b = e.target.closest("[data-region]");
+    if (!b) return;
+    state.region = b.dataset.region;
+    document.querySelectorAll("#regionTabs .pill").forEach(p => p.classList.toggle("active", p === b));
+    render();
+  });
+  const themes = ["", "light", "dark"], themeNames = ["自動", "亮色", "暗色"];
+  let themeIdx = 0;
+  document.getElementById("themeBtn").addEventListener("click", () => {
+    themeIdx = (themeIdx + 1) % 3;
+    if (themes[themeIdx]) document.documentElement.setAttribute("data-theme", themes[themeIdx]);
+    else document.documentElement.removeAttribute("data-theme");
+    document.getElementById("themeBtn").textContent = "主題：" + themeNames[themeIdx];
+  });
+  window.addEventListener("scroll", hideTooltip);
+
+  loadData(true);
+  setInterval(() => loadData(false), 30 * 60 * 1000);
+})();
+</script>
+</body>
+</html>
