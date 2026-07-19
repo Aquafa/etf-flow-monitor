@@ -153,6 +153,7 @@
       <button class="pill" data-asset="eth" role="tab">ETH 以太幣</button>
       <button class="pill" data-asset="stocks" role="tab">全球股市</button>
       <button class="pill" data-asset="risk" role="tab" id="riskTab">風險警示</button>
+      <button class="pill" data-asset="live" role="tab">即時盤面</button>
     </div>
     <div class="pills" id="horizonTabs" style="display:none">
       <button class="pill" data-horizon="flow1w">1 週</button>
@@ -162,6 +163,17 @@
       <button class="pill" data-horizon="flow1y">1 年</button>
     </div>
     <div class="pills" id="regionTabs" style="display:none"></div>
+    <div class="pills" id="liveSymTabs" style="display:none">
+      <button class="pill active" data-sym="BTCUSDT">BTC</button>
+      <button class="pill" data-sym="ETHUSDT">ETH</button>
+    </div>
+    <div class="pills" id="intervalTabs" style="display:none">
+      <button class="pill" data-interval="15m">15 分</button>
+      <button class="pill" data-interval="30m">30 分</button>
+      <button class="pill active" data-interval="1h">1 小時</button>
+      <button class="pill" data-interval="4h">4 小時</button>
+      <button class="pill" data-interval="1d">1 日</button>
+    </div>
     <div class="pills" id="rangeTabs">
       <button class="pill" data-range="30">30 天</button>
       <button class="pill active" data-range="90">90 天</button>
@@ -187,7 +199,8 @@
 <script>
 (function () {
   "use strict";
-  const state = { asset: "btc", range: 90, horizon: "flow1m", region: "us", data: {} };
+  const state = { asset: "btc", range: 90, horizon: "flow1m", region: "us", interval: "1h", liveSym: "BTCUSDT", data: {} };
+  const INTERVAL_NAMES = { "15m": "15 分", "30m": "30 分", "1h": "1 小時", "4h": "4 小時", "1d": "1 日" };
   const HORIZON_NAMES = { flow1w: "1 週", flow1m: "1 月", flow3m: "3 月", flowYtd: "今年以來", flow1y: "1 年" };
   const content = document.getElementById("content");
   const tooltip = document.getElementById("tooltip");
@@ -266,10 +279,13 @@
   // ---------- render ----------
   function render() {
     updateRiskBadge();
-    const isStocks = state.asset === "stocks", isRisk = state.asset === "risk";
+    const isStocks = state.asset === "stocks", isRisk = state.asset === "risk", isLive = state.asset === "live";
     document.getElementById("horizonTabs").style.display = isStocks ? "" : "none";
     document.getElementById("regionTabs").style.display = isStocks ? "" : "none";
-    document.getElementById("rangeTabs").style.display = isRisk ? "none" : "";
+    document.getElementById("liveSymTabs").style.display = isLive ? "" : "none";
+    document.getElementById("intervalTabs").style.display = isLive ? "" : "none";
+    document.getElementById("rangeTabs").style.display = (isRisk || isLive) ? "none" : "";
+    if (isLive) { renderLive(); return; }
     if (isRisk) { renderRisk(); return; }
     if (isStocks) { renderStocks(); return; }
     const d = state.data[state.asset];
@@ -312,9 +328,10 @@
       '</div>';
   }
 
-  function cardHTML(id, title, legend) {
+  function cardHTML(id, title, legend, unit) {
+    if (unit === undefined) unit = "單位 US$m";
     return '<div class="card"><div class="card-head"><h2>' + title +
-      ' <span class="unit">單位 US$m</span></h2>' +
+      (unit ? ' <span class="unit">' + unit + '</span>' : "") + '</h2>' +
       (legend ? '<div class="legend"><span><span class="sw" style="background:var(--inflow)"></span>流入</span>' +
         '<span><span class="sw" style="background:var(--outflow)"></span>流出</span></div>' : "") +
       '</div><div id="chart-' + id + '"></div></div>';
@@ -328,11 +345,13 @@
     return e;
   }
 
-  function frame(container, W, H, PAD, values) {
+  function frame(container, W, H, PAD, values, fmtA, zeroBase) {
+    fmtA = fmtA || fmtAxis;
     container.innerHTML = "";
     const svg = el("svg", { viewBox: "0 0 " + W + " " + H });
     container.appendChild(svg);
-    let min = Math.min(0, ...values), max = Math.max(0, ...values);
+    let min = zeroBase === false ? Math.min(...values) : Math.min(0, ...values);
+    let max = zeroBase === false ? Math.max(...values) : Math.max(0, ...values);
     const span = (max - min) || 1;
     min -= span * 0.05; max += span * 0.05;
     const ticks = niceTicks(min, max, 5);
@@ -341,19 +360,19 @@
     for (const t of ticks) {
       el("line", { x1: PAD.l, x2: W - PAD.r, y1: y(t), y2: y(t), stroke: "var(--grid)", "stroke-width": 1 }, svg);
       el("text", { x: PAD.l - 6, y: y(t) + 3.5, "text-anchor": "end", class: "axis-tick" }, svg)
-        .textContent = fmtAxis(t);
+        .textContent = fmtA(t);
     }
     if (min < 0 && max > 0)
       el("line", { x1: PAD.l, x2: W - PAD.r, y1: y(0), y2: y(0), stroke: "var(--baseline)", "stroke-width": 1 }, svg);
     return { svg, y };
   }
 
-  function xTicks(svg, rows, xOf, H, PAD) {
+  function xTicks(svg, rows, xOf, H, PAD, tickFn) {
     const n = Math.min(6, rows.length);
     const stride = Math.max(1, Math.floor(rows.length / n));
     for (let i = 0; i < rows.length; i += stride) {
       el("text", { x: xOf(i), y: H - PAD.b + 16, "text-anchor": "middle", class: "axis-tick" }, svg)
-        .textContent = fmtDate(rows[i].date);
+        .textContent = tickFn ? tickFn(rows[i]) : fmtDate(rows[i].date);
     }
   }
 
@@ -369,7 +388,9 @@
       "H" + (x + w - r) + "Q" + (x + w) + " " + y1 + " " + (x + w) + " " + (y1 - r) + "V" + y0 + "Z";
   }
 
-  function drawDaily(container, rows) {
+  function drawDaily(container, rows, opts) {
+    opts = opts || {};
+    const full = opts.full || (r => fmtDateFull(r.date));
     const W = 960, H = 320, PAD = { l: 52, r: 8, t: 10, b: 26 };
     const { svg, y } = frame(container, W, H, PAD, rows.map(r => r.total));
     const plotW = W - PAD.l - PAD.r;
@@ -385,7 +406,7 @@
         fill: color
       }, svg);
     });
-    xTicks(svg, rows, xOf, H, PAD);
+    xTicks(svg, rows, xOf, H, PAD, opts.tick);
     // full-height hover targets
     rows.forEach((r, i) => {
       const hit = el("rect", {
@@ -395,12 +416,42 @@
       hit.addEventListener("mousemove", ev => {
         const cls = r.total > 0 ? "good" : r.total < 0 ? "bad" : "flat";
         showTooltip(
-          '<div class="tt-date">' + fmtDateFull(r.date) + '</div>' +
-          '<div class="tt-row"><span>單日淨流量</span><span class="sub ' + cls + '">' + fmtM(r.total) + '</span></div>' +
-          '<div class="tt-row"><span>累計</span><span>' + fmtM(r.cumulative) + '</span></div>',
+          '<div class="tt-date">' + full(r) + '</div>' +
+          '<div class="tt-row"><span>' + (opts.dayLabel || "單日淨流量") + '</span><span class="sub ' + cls + '">' + fmtM(r.total) + '</span></div>' +
+          '<div class="tt-row"><span>' + (opts.cumLabel || "累計") + '</span><span>' + fmtM(r.cumulative) + '</span></div>',
           ev.clientX, ev.clientY);
       });
       hit.addEventListener("mouseleave", hideTooltip);
+    });
+  }
+
+  function drawLine(container, rows, opts) {
+    const val = opts.val, fmtV = opts.fmtVal || fmtM;
+    const full = opts.full || (r => fmtDateFull(r.date));
+    const W = 960, H = 300, PAD = { l: 62, r: 8, t: 10, b: 26 };
+    const { svg, y } = frame(container, W, H, PAD, rows.map(val), opts.fmtAxis, false);
+    const plotW = W - PAD.l - PAD.r;
+    const xOf = i => PAD.l + (rows.length === 1 ? plotW / 2 : plotW * i / (rows.length - 1));
+    const dPath = rows.map((r, i) => (i ? "L" : "M") + xOf(i).toFixed(1) + " " + y(val(r)).toFixed(1)).join("");
+    el("path", { d: dPath, fill: "none", stroke: "var(--inflow)", "stroke-width": 2, "stroke-linejoin": "round" }, svg);
+    xTicks(svg, rows, xOf, H, PAD, opts.tick);
+    const cross = el("line", { y1: PAD.t, y2: H - PAD.b, stroke: "var(--baseline)", "stroke-width": 1, visibility: "hidden" }, svg);
+    const dot = el("circle", { r: 4, fill: "var(--inflow)", stroke: "var(--surface-1)", "stroke-width": 2, visibility: "hidden" }, svg);
+    const hit = el("rect", { x: PAD.l, y: PAD.t, width: plotW, height: H - PAD.t - PAD.b, fill: "transparent" }, svg);
+    hit.addEventListener("mousemove", ev => {
+      const box = svg.getBoundingClientRect();
+      const px = (ev.clientX - box.left) / box.width * W;
+      const i = Math.max(0, Math.min(rows.length - 1, Math.round((px - PAD.l) / plotW * (rows.length - 1))));
+      const r = rows[i];
+      cross.setAttribute("x1", xOf(i)); cross.setAttribute("x2", xOf(i)); cross.setAttribute("visibility", "visible");
+      dot.setAttribute("cx", xOf(i)); dot.setAttribute("cy", y(val(r))); dot.setAttribute("visibility", "visible");
+      showTooltip('<div class="tt-date">' + full(r) + '</div>' +
+        '<div class="tt-row"><span>' + opts.name + '</span><span>' + fmtV(val(r)) + '</span></div>', ev.clientX, ev.clientY);
+    });
+    hit.addEventListener("mouseleave", () => {
+      hideTooltip();
+      cross.setAttribute("visibility", "hidden");
+      dot.setAttribute("visibility", "hidden");
     });
   }
 
@@ -622,6 +673,80 @@
     }
     h += "</tbody></table></div></div>";
     return h;
+  }
+
+  // ---------- live intraday view (Binance) ----------
+  const fmtPrice = v => "$" + (v >= 1000 ? v.toLocaleString("en-US", { maximumFractionDigits: 0 }) : v.toFixed(2));
+  const pad2 = n => String(n).padStart(2, "0");
+  function kLabel(ts, interval) {
+    const d = new Date(ts);
+    const md = pad2(d.getMonth() + 1) + "/" + pad2(d.getDate());
+    return interval === "1d" ? md : md + " " + pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+  }
+  let liveSeq = 0;
+  async function renderLive() {
+    const seq = ++liveSeq;
+    const sym = state.liveSym, iv = state.interval;
+    if (!content.querySelector("#chart-liveflow")) content.classList.add("refetching");
+    let ks;
+    try {
+      const r = await fetch("https://api.binance.com/api/v3/klines?symbol=" + sym + "&interval=" + iv + "&limit=192");
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      ks = await r.json();
+    } catch (e) {
+      content.classList.remove("refetching");
+      content.innerHTML = '<div class="loading-note">無法連線幣安行情 API：' + esc(e.message) + '</div>';
+      return;
+    }
+    if (seq !== liveSeq || state.asset !== "live") return;
+    content.classList.remove("refetching");
+    let cum = 0;
+    const rows = ks.map(k => {
+      const quote = +k[7], takerBuy = +k[10];
+      const net = (2 * takerBuy - quote) / 1e6;
+      cum += net;
+      return { ts: +k[0], label: kLabel(+k[0], iv), close: +k[4], quote: quote / 1e6,
+               buyRatio: quote > 0 ? takerBuy / quote : 0.5, total: net, cumulative: cum };
+    });
+    const last = rows[rows.length - 1];
+    const chg = (last.close - rows[0].close) / rows[0].close;
+    const name = sym === "BTCUSDT" ? "BTC" : "ETH";
+    const ivName = INTERVAL_NAMES[iv];
+    const winName = "近 " + rows.length + " 根 " + ivName + " K";
+    document.getElementById("updated").textContent =
+      "即時資料：幣安・" + new Date().toTimeString().slice(0, 8) + "（每分鐘自動更新）";
+
+    content.innerHTML =
+      '<div class="tiles">' +
+      '<div class="tile"><div class="label">' + name + ' 最新價</div><div class="value">' + fmtPrice(last.close) + '</div>' +
+      '<div class="sub ' + (chg >= 0 ? "good" : "bad") + '">' + (chg >= 0 ? "▲" : "▼") + " " + (chg * 100).toFixed(2) + "%・" + winName + '</div></div>' +
+      tileHTML("最新一根淨流（" + ivName + "）", last.total) +
+      tileHTML(winName + " 累計淨流", cum) +
+      '<div class="tile"><div class="label">最新一根主動買佔比</div><div class="value">' + (last.buyRatio * 100).toFixed(1) + '%</div>' +
+      '<div class="sub flat">&gt;50% 代表主動買盤佔優</div></div>' +
+      "</div>" +
+      cardHTML("liveflow", name + " 主動買賣資金差額（" + ivName + "）", true) +
+      cardHTML("liveprice", name + " 價格走勢（" + ivName + "）", false, "") +
+      liveTableHTML(rows, name) +
+      '<div class="card"><div class="cluster-note">說明：ETF 申贖資金流為日頻資料（見其他分頁）；此分頁的分鐘／小時級「資金流向」' +
+      '取自幣安現貨的主動成交差額（taker 買單金額 − taker 賣單金額，USDT 計），即看盤軟體常說的主力資金流入/流出，為即時情緒指標。</div></div>';
+
+    const opts = { tick: r => r.label, full: r => r.label,
+                   dayLabel: "淨流（" + ivName + "）", cumLabel: "累計" };
+    drawDaily(document.getElementById("chart-liveflow"), rows, opts);
+    drawLine(document.getElementById("chart-liveprice"), rows,
+      { val: r => r.close, name: "收盤價", fmtVal: fmtPrice, fmtAxis: fmtPrice, tick: opts.tick, full: r => r.label });
+  }
+
+  function liveTableHTML(rows, name) {
+    let h = '<div class="card"><div class="card-head"><h2>近 12 根明細 <span class="unit">金額單位 US$m（USDT）</span></h2></div>' +
+      '<div class="tbl-wrap"><table><thead><tr><th>時間</th><th>收盤價</th><th>成交額</th><th>主動買佔比</th><th>淨流</th></tr></thead><tbody>';
+    for (const r of rows.slice(-12).reverse()) {
+      h += "<tr><td>" + r.label + "</td><td>" + fmtPrice(r.close) + "</td><td>" + fmtCell(r.quote) + "</td>" +
+        "<td>" + (r.buyRatio * 100).toFixed(1) + "%</td>" +
+        '<td class="tot ' + (r.total < 0 ? "neg" : "") + '">' + fmtCell(r.total) + "</td></tr>";
+    }
+    return h + "</tbody></table></div></div>";
   }
 
   // ---------- risk analysis engine ----------
@@ -889,6 +1014,21 @@
     document.querySelectorAll("#regionTabs .pill").forEach(p => p.classList.toggle("active", p === b));
     render();
   });
+  document.getElementById("intervalTabs").addEventListener("click", e => {
+    const b = e.target.closest("[data-interval]");
+    if (!b) return;
+    state.interval = b.dataset.interval;
+    document.querySelectorAll("#intervalTabs .pill").forEach(p => p.classList.toggle("active", p === b));
+    render();
+  });
+  document.getElementById("liveSymTabs").addEventListener("click", e => {
+    const b = e.target.closest("[data-sym]");
+    if (!b) return;
+    state.liveSym = b.dataset.sym;
+    document.querySelectorAll("#liveSymTabs .pill").forEach(p => p.classList.toggle("active", p === b));
+    render();
+  });
+  setInterval(() => { if (state.asset === "live") renderLive(); }, 60 * 1000);
   const themes = ["", "light", "dark"], themeNames = ["自動", "亮色", "暗色"];
   let themeIdx = 0;
   document.getElementById("themeBtn").addEventListener("click", () => {
