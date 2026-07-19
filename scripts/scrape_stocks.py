@@ -43,6 +43,9 @@ SEGMENTS = [
 
 SEGMENT_START = "2024-01-01"
 
+# 使用者的 Trackinsight 公開自選清單（在網站上增減 ETF 會自動同步到頁面）
+WATCHLIST_ID = "6qRj83ZV"
+
 
 def get_json(path, retries=4):
     url = BASE + path
@@ -109,6 +112,30 @@ def fetch_segment(seg_id):
     return rows
 
 
+def fetch_watchlist():
+    meta = get_json(f"/user-api/user/lists/public-lists/{WATCHLIST_ID}")
+    ids = (meta.get("data") or {}).get("funds") or []
+    if not ids:
+        return None
+    fields = ("ticker,label,USD$3axaum,USD$3axflow1m,USD$3axflowYtd,"
+              "USD$3axflow1y,perf1m,perfYtd")
+    idlist = ",".join(str(i) for i in ids)
+    docs = get_json(f"/search-api/search_v2/_/key$3axid={idlist}/{fields}/default/0/100")["results"]["docs"]
+    m = lambda v: round((v or 0) / 1e6, 1)
+    funds = [{
+        "ticker": d["ticker"].split(":")[-1],
+        "label": d.get("label", ""),
+        "aum": m(d.get("USD:aum")),
+        "flow1m": m(d.get("USD:flow1m")),
+        "flowYtd": m(d.get("USD:flowYtd")),
+        "flow1y": m(d.get("USD:flow1y")),
+        "perf1m": d.get("perf1m"),
+        "perfYtd": d.get("perfYtd"),
+    } for d in docs]
+    funds.sort(key=lambda x: -x["aum"])
+    return {"id": WATCHLIST_ID, "name": meta.get("name", ""), "funds": funds}
+
+
 def main():
     DATA.mkdir(exist_ok=True)
     print("countries...")
@@ -124,12 +151,20 @@ def main():
             row["cumulative"] = round(cumulative, 1)
         segments.append({"id": seg_id, "key": key, "name": name, "rows": rows})
         time.sleep(3)
+    watchlist = None
+    try:
+        time.sleep(3)
+        print("watchlist...")
+        watchlist = fetch_watchlist()
+    except Exception as e:
+        print(f"  watchlist failed, skipping: {e}", file=sys.stderr)
     out = {
         "unit": "US$m",
         "source": "https://www.trackinsight.com",
         "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "countries": countries,
         "segments": segments,
+        "watchlist": watchlist,
     }
     path = DATA / "stocks.json"
     path.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")

@@ -525,6 +525,7 @@
       '<div class="tile"><div class="label">監測範圍</div><div class="value">' + list.length + ' 國</div>' +
       '<div class="sub flat">各國代表性 ETF・單位 US$m</div></div>' +
       "</div>" +
+      watchlistCardHTML(d) +
       cardHTML("countries", "各國股市 ETF 淨流量（" + hName + "）", true) +
       cardHTML("daily", "區域每日淨流量：" + seg.name, true) +
       cardHTML("cum", "區域累計淨流入：" + seg.name, false) +
@@ -571,6 +572,40 @@
         "text-anchor": v >= 0 ? "start" : "end", class: "axis-tick", fill: "var(--text-secondary)"
       }, svg).textContent = fmtM(v);
     });
+  }
+
+  const fmtPct = v => v == null ? "—" : (v > 0 ? "+" : "") + (v * 100).toFixed(1) + "%";
+  function watchRead(f) {
+    if (f.perfYtd == null) return null;
+    if (f.perfYtd > 0.15 && f.flowYtd < 0)
+      return { sev: "warn", label: "價漲錢跑", text: "今年大漲 " + fmtPct(f.perfYtd) + " 但資金累計流出 " + fmtM(f.flowYtd) + "——上漲缺乏資金支撐，動能背離，回檔時買盤可能不足。" };
+    if (f.perf1m < -0.1 && f.flow1m > 0)
+      return { sev: "ok", label: "逢低承接", text: "近月下跌 " + fmtPct(f.perf1m) + " 但資金反向流入 " + fmtM(f.flow1m) + "——市場把回檔視為買點，資金面偏多。" };
+    if (f.perfYtd < -0.05 && f.flowYtd < 0)
+      return { sev: "serious", label: "價量同弱", text: "價格與資金同步走弱（YTD " + fmtPct(f.perfYtd) + "、流出 " + fmtM(f.flowYtd) + "），外資持續減碼中。" };
+    if (f.perfYtd > 0 && f.flowYtd > 0)
+      return { sev: "ok", label: "價量齊揚", text: "價格上漲且資金持續流入，趨勢健康。" };
+    return { sev: "warn", label: "中性觀察", text: "價格與資金方向不一致但幅度不大，持續觀察。" };
+  }
+
+  function watchlistCardHTML(d) {
+    const w = d.watchlist;
+    if (!w || !w.funds || !w.funds.length) return "";
+    let h = '<div class="card"><div class="card-head"><h2>我的自選清單「' + esc(w.name) + '」 <span class="unit">單位 US$m・同步自 Trackinsight 公開清單</span></h2>' +
+      '<a class="unit" href="https://www.trackinsight.com/en/watchlists/public-lists/' + esc(w.id) + '" target="_blank" rel="noopener">在 Trackinsight 編輯 ↗</a></div>' +
+      '<div class="tbl-wrap"><table><thead><tr><th>ETF</th><th>名稱</th><th>資產規模</th><th>1 月績效</th><th>YTD 績效</th><th>1 月流量</th><th>YTD 流量</th><th style="text-align:left">價量判讀</th></tr></thead><tbody>';
+    for (const f of w.funds) {
+      const r = watchRead(f);
+      h += "<tr><td style='text-align:left;font-weight:650'>" + esc(f.ticker) + "</td>" +
+        "<td style='text-align:left'>" + esc(f.label) + "</td><td>" + fmtCell(f.aum) + "</td>" +
+        '<td class="' + (f.perf1m < 0 ? "neg" : "") + '">' + fmtPct(f.perf1m) + "</td>" +
+        '<td class="' + (f.perfYtd < 0 ? "neg" : "") + '">' + fmtPct(f.perfYtd) + "</td>" +
+        '<td class="' + (f.flow1m < 0 ? "neg" : "") + '">' + fmtCell(f.flow1m) + "</td>" +
+        '<td class="' + (f.flowYtd < 0 ? "neg" : "") + '">' + fmtCell(f.flowYtd) + "</td>" +
+        '<td class="trend">' + (r ? chip(r.sev) + " " + r.label : "—") + "</td></tr>";
+    }
+    h += "</tbody></table></div></div>";
+    return h;
   }
 
   function stocksTableHTML(d) {
@@ -700,6 +735,14 @@
           alerts.push({ sev: "warn", title: c.country + "（" + c.ticker + "）：流出佔資產規模 " + Math.abs(pct).toFixed(1) + "%（金額較小）", detail: "月流出 " + fmtM(c.flow1m) + "。比例偏高但絕對金額不大，可能只是單一大戶調整，先列入觀察。" });
         if (c.flow1w < 0 && c.flow1m < 0 && c.flow1w / 7 < (c.flow1m / 30) * 2 && Math.abs(c.flow1w) >= 20)
           alerts.push({ sev: "warn", title: c.country + "（" + c.ticker + "）：流出節奏加快", detail: "近 1 週流出速度為月均速的 2 倍以上（週 " + fmtM(c.flow1w) + "／月 " + fmtM(c.flow1m) + "），留意事件驅動風險。" });
+      }
+    }
+    // watchlist price/flow divergences
+    if (d.stocks && d.stocks.watchlist && d.stocks.watchlist.funds) {
+      for (const f of d.stocks.watchlist.funds) {
+        const r = watchRead(f);
+        if (r && (r.sev === "warn" && r.label === "價漲錢跑" || r.sev === "serious"))
+          alerts.push({ sev: r.sev, title: "自選清單 " + f.ticker + "：" + r.label, detail: r.text });
       }
     }
     // composite risk appetite
