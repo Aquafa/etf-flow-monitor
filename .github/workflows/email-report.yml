@@ -18,8 +18,8 @@ jobs:
       - name: Send report
         env:
           SMTP_USER: ${{ secrets.SMTP_USER }}
-          SMTP_PASS: ${{ secrets.SMTP_PASS }}
-          MAIL_TO: ${{ secrets.MAIL_TO }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS || secrets.ETF }}
+          MAIL_TO: ${{ secrets.MAIL_TO || secrets.SMTP_USER }}
         run: |
           if [ -z "$SMTP_PASS" ]; then
             echo "SMTP_PASS secret 未設定，略過寄信（請到 repo Settings → Secrets 設定）"
