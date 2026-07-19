@@ -67,6 +67,43 @@ def get_json(path, retries=4):
     raise RuntimeError(f"failed after {retries} tries: {url}")
 
 
+class BrowserFetcher:
+    """Fetch the same public endpoints through a real (headless) browser.
+
+    Trackinsight 的 search-api 會對非瀏覽器用戶端回 HTTP 202 空回應（bot 驗證），
+    urllib/curl 過不了；用 Playwright 以真實頁面的同源 fetch 取資料。
+    """
+
+    def __init__(self):
+        from playwright.sync_api import sync_playwright
+        self._pw = sync_playwright().start()
+        self._browser = self._pw.chromium.launch(headless=True)
+        ctx = self._browser.new_context(locale="en-US")
+        self.page = ctx.new_page()
+        self.page.goto(BASE + "/en/fund/EWJ", wait_until="domcontentloaded", timeout=90000)
+        self.page.wait_for_timeout(4000)
+
+    def get_json(self, path, retries=4):
+        for attempt in range(retries):
+            try:
+                body = self.page.evaluate(
+                    "url => fetch(url).then(r => r.text())", path)
+                if body and body.strip():
+                    return json.loads(body)
+                print("  empty response via browser, retrying...", file=sys.stderr)
+            except Exception as e:
+                print(f"  {e}, retrying...", file=sys.stderr)
+            time.sleep(10 * (attempt + 1))
+        raise RuntimeError(f"browser fetch failed: {path}")
+
+    def close(self):
+        try:
+            self._browser.close()
+            self._pw.stop()
+        except Exception:
+            pass
+
+
 def fetch_countries():
     tickers = ",".join(COUNTRIES)
     fields = ("ticker,label,USD$3axaum,USD$3axflow1w,USD$3axflow1m,"
@@ -137,6 +174,11 @@ def fetch_watchlist():
 
 
 def main():
+    global get_json
+    fetcher = None
+    if "--browser" in sys.argv:
+        fetcher = BrowserFetcher()
+        get_json = fetcher.get_json
     DATA.mkdir(exist_ok=True)
     print("countries...")
     countries = fetch_countries()
@@ -168,7 +210,10 @@ def main():
     }
     path = DATA / "stocks.json"
     path.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
-    print(f"{len(countries)} countries, {len(segments)} segments -> {path.name}")
+    print(f"{len(countries)} countries, {len(segments)} segments, "
+          f"watchlist={'ok' if watchlist else 'none'} -> {path.name}")
+    if fetcher:
+        fetcher.close()
 
 
 if __name__ == "__main__":

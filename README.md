@@ -19,7 +19,11 @@
 | `scripts/receiver.py` | （工具）本機手動補資料用的接收器，部署不需要 |
 | `.github/workflows/update-data.yml` | 定時自動更新 |
 
-注意：兩個資料源都有反爬蟲（需瀏覽器 UA；Trackinsight 對高頻請求回 202 限流），`scrape_stocks.py` 內建重試與間隔。
+## 資料更新現況
+
+- **加密 ETF（Farside）**：GitHub Actions 全自動，已驗證可用。
+- **股市 ETF（Trackinsight）**：其 search-api 對非瀏覽器用戶端回 202 空回應，對無頭瀏覽器出 Human Verification（CAPTCHA）——**無法全自動**，也不應繞過其驗證。目前做法：在 Claude Code 會話中用瀏覽器分頁（正常瀏覽 session）抓取，經 `scripts/receiver.py` 寫入 `data/stocks.json` 後 push。想更新股市資料時，跟 Claude 說「更新股市資料」即可。`scrape_stocks.py --browser` 為 Playwright 模式，僅在乾淨住宅網路 session 下可能可用。
+- workflow 內的股市抓取步驟保留 `continue-on-error`：若 Trackinsight 日後放寬，會自動恢復全自動。
 
 ## 本地執行
 
