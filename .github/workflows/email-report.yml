@@ -1,0 +1,28 @@
+name: Daily email report
+
+on:
+  schedule:
+    # UTC 01:50 = 台北 09:50，接在 01:30 資料更新之後
+    - cron: "50 1 * * *"
+  workflow_dispatch:
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install matplotlib
+      - name: Send report
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+        run: |
+          if [ -z "$SMTP_PASS" ]; then
+            echo "SMTP_PASS secret 未設定，略過寄信（請到 repo Settings → Secrets 設定）"
+            exit 0
+          fi
+          python scripts/report.py
