@@ -166,6 +166,12 @@
     <div class="pills" id="liveSymTabs" style="display:none">
       <button class="pill active" data-sym="BTCUSDT">BTC</button>
       <button class="pill" data-sym="ETHUSDT">ETH</button>
+      <button class="pill" data-sym="TV:AMEX:SPY">標普500</button>
+      <button class="pill" data-sym="TV:NASDAQ:QQQ">那斯達克</button>
+      <button class="pill" data-sym="TV:AMEX:EWT">台灣</button>
+      <button class="pill" data-sym="TV:AMEX:EWJ">日本</button>
+      <button class="pill" data-sym="TV:AMEX:EWY">韓國</button>
+      <button class="pill" data-sym="TV:NASDAQ:MCHI">中國</button>
     </div>
     <div class="pills" id="intervalTabs" style="display:none">
       <button class="pill" data-interval="15m">15 分</button>
@@ -683,8 +689,45 @@
     const md = pad2(d.getMonth() + 1) + "/" + pad2(d.getDate());
     return interval === "1d" ? md : md + " " + pad2(d.getHours()) + ":" + pad2(d.getMinutes());
   }
+  const TV_INTERVAL = { "15m": "15", "30m": "30", "1h": "60", "4h": "240", "1d": "D" };
+  let tvLoaded = null;
+  function loadTV() {
+    if (!tvLoaded) tvLoaded = new Promise((res, rej) => {
+      const s = document.createElement("script");
+      s.src = "https://s3.tradingview.com/tv.js";
+      s.onload = res; s.onerror = () => rej(new Error("TradingView 載入失敗"));
+      document.head.appendChild(s);
+    });
+    return tvLoaded;
+  }
+
+  async function renderLiveStock() {
+    const tvSym = state.liveSym.slice(3);
+    const name = document.querySelector('#liveSymTabs [data-sym="' + state.liveSym + '"]').textContent;
+    document.getElementById("updated").textContent = "即時資料：TradingView（依交易所行情延遲規則）";
+    content.innerHTML =
+      '<div class="card"><div class="card-head"><h2>' + name + '（' + esc(tvSym) + '）盤中走勢 <span class="unit">' +
+      INTERVAL_NAMES[state.interval] + ' K・TradingView</span></h2></div><div id="tv-box" style="height:520px"></div></div>' +
+      '<div class="card"><div class="cluster-note">說明：股市的盤中「主動買賣資金流」屬付費逐筆資料，免費來源不存在；' +
+      '此處提供盤中價格走勢（TradingView，可用圖表工具列切換更多級距與指標）。股市 ETF 的申贖資金流為日頻，' +
+      '請看「全球股市」與「風險警示」分頁。美股交易時段為台北時間 21:30–04:00（夏令）。</div></div>';
+    try {
+      await loadTV();
+      if (state.asset !== "live" || !state.liveSym.startsWith("TV:")) return;
+      const dark = getComputedStyle(document.body).backgroundColor === "rgb(13, 13, 13)";
+      new TradingView.widget({
+        container_id: "tv-box", symbol: tvSym, interval: TV_INTERVAL[state.interval],
+        theme: dark ? "dark" : "light", locale: "zh_TW", timezone: "Asia/Taipei",
+        autosize: true, hide_side_toolbar: true, allow_symbol_change: false, style: "1"
+      });
+    } catch (e) {
+      document.getElementById("tv-box").innerHTML = '<div class="loading-note">' + esc(e.message) + '</div>';
+    }
+  }
+
   let liveSeq = 0;
   async function renderLive() {
+    if (state.liveSym.startsWith("TV:")) { renderLiveStock(); return; }
     const seq = ++liveSeq;
     const sym = state.liveSym, iv = state.interval;
     if (!content.querySelector("#chart-liveflow")) content.classList.add("refetching");
@@ -1028,7 +1071,7 @@
     document.querySelectorAll("#liveSymTabs .pill").forEach(p => p.classList.toggle("active", p === b));
     render();
   });
-  setInterval(() => { if (state.asset === "live") renderLive(); }, 60 * 1000);
+  setInterval(() => { if (state.asset === "live" && !state.liveSym.startsWith("TV:")) renderLive(); }, 60 * 1000);
   const themes = ["", "light", "dark"], themeNames = ["自動", "亮色", "暗色"];
   let themeIdx = 0;
   document.getElementById("themeBtn").addEventListener("click", () => {
