@@ -252,7 +252,8 @@ def build_html(btc, eth, stocks, alerts, trends, clusters, appetite, crypto7, ci
         f'<div style="font-size:12px;color:#898781">{label}</div>'
         f'<div style="font-size:20px;font-weight:700;color:{color_of(v)}">US$ {fmt_m(v)}</div></td>')
     h = [f'''<div style="font-family:system-ui,-apple-system,'Segoe UI','Microsoft JhengHei',sans-serif;max-width:720px;margin:auto;color:#0b0b0b">
-<h2 style="margin:6px 0">ETF 資金流向日報 <span style="font-weight:400;color:#898781;font-size:14px">{today}</span></h2>
+<h2 style="margin:6px 0">ETF 資金流向日報 <span style="font-weight:400;color:#898781;font-size:14px">{today}・最新交易日 {btc["rows"][-1]["date"]}</span></h2>
+{'<p style="color:#8a6100;font-size:12.5px;margin:2px 0">今日為週末／假日後，市場尚無新交易日資料，內容與上一封相同。</p>' if (date.today() - date.fromisoformat(btc["rows"][-1]["date"])).days >= 2 else ''}
 <p style="margin:4px 0 12px;font-size:14px">整體風險偏好：{chip(appetite[0])} <b>{appetite[1]}</b><br>
 <span style="color:#52514e;font-size:13px">{appetite[2]}</span></p>
 {stale}
@@ -346,7 +347,8 @@ def main():
     to = os.environ.get("MAIL_TO", user)
     n_bad = sum(1 for a in alerts if SEV_ORDER[a[0]] >= 2)
     msg = EmailMessage()
-    msg["Subject"] = (f"ETF 日報 {date.today().isoformat()}｜{appetite[1]}｜"
+    last_day = btc["rows"][-1]["date"][5:].replace("-", "/")
+    msg["Subject"] = (f"ETF 日報 {date.today().isoformat()}｜資料至 {last_day}｜{appetite[1]}｜"
                       f"BTC {fmt_m(btc['rows'][-1]['total'])}｜警示 {n_bad} 條")
     msg["From"] = user
     msg["To"] = to
